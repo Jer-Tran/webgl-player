@@ -1,3 +1,4 @@
+import { drawShape1, drawShape2, DrawShapes } from "./draw.js";
 
 function handleFile() {
     const file = input.files[0]
@@ -35,6 +36,7 @@ function DrawVideo(file) {
             // the various shapes that make-up the frame, which each shape is a list of vertices coordinates
     
             // from the list, draw the shapes onto the canvas
+        DrawShapes([])
     }
 
     video.src = blob
@@ -74,5 +76,9 @@ const canvas = document.getElementById("canvas")
 document.getElementById("pause").onclick = TogglePlayback
 // const DEFAULT_WIDTH = 1000
 var DrawFunction = function () { console.log("No video uploaded yet") }
+
+document.getElementById("1").onclick = drawShape1
+document.getElementById("2").onclick = drawShape2
+document.getElementById("3").onclick = function () { DrawShapes([]) }
 
 Start()

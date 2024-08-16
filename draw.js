@@ -1,4 +1,6 @@
 // Code stolen and modified from https://www.youtube.com/watch?v=y2UsQB3WSvo
+import earcut from 'https://cdn.jsdelivr.net/npm/earcut/+esm'
+// See https://github.com/mapbox/earcut
 
 /** Helper method to output an error message to the screen */
 function showError(errorText) {
@@ -42,8 +44,12 @@ function PrepareGPU() {
     precision mediump float;
     
     in vec2 vertexPosition;
+    in vec3 vertexColour;
+
+    out vec3 fragmentColour;
     
     void main() {
+        fragmentColour = vertexColour;
         gl_Position = vec4(vertexPosition, 0.0, 1.0);
         }`;
     
@@ -59,10 +65,11 @@ function PrepareGPU() {
     const fragmentShaderSourceCode = `#version 300 es
     precision mediump float;
     
+    in vec3 fragmentColour;
     out vec4 outputColor;
     
     void main() {
-        outputColor = vec4(0.294, 0.0, 0.51, 1.0);
+        outputColor = vec4(fragmentColour, 1.0);
         }`;
     
     const fragmentShader = gl.createShader(gl.FRAGMENT_SHADER);
@@ -74,75 +81,98 @@ function PrepareGPU() {
         return;
     }
     
-    const helloTriangleProgram = gl.createProgram();
-    gl.attachShader(helloTriangleProgram, vertexShader);
-    gl.attachShader(helloTriangleProgram, fragmentShader);
-    gl.linkProgram(helloTriangleProgram);
-    if (!gl.getProgramParameter(helloTriangleProgram, gl.LINK_STATUS)) {
-        const errorMessage = gl.getProgramInfoLog(helloTriangleProgram);
+    const glProgram = gl.createProgram();
+    gl.attachShader(glProgram, vertexShader);
+    gl.attachShader(glProgram, fragmentShader);
+    gl.linkProgram(glProgram);
+    if (!gl.getProgramParameter(glProgram, gl.LINK_STATUS)) {
+        const errorMessage = gl.getProgramInfoLog(glProgram);
         showError(`Failed to link GPU program: ${errorMessage}`);
         return;
     }
+    gl.useProgram(glProgram)
     
     // Attribute locations allow us to talk about which shader input should
     //  read from which GPU buffer in the later "vertexAttribPointer" call.
     // NOTE - WebGL 2 and OpenGL 4.1+ should use VertexArrayObjects instead,
     //  which I'll cover in the next tutorial.
-    const vertexPositionAttributeLocation = gl.getAttribLocation(helloTriangleProgram, 'vertexPosition');
-    if (vertexPositionAttributeLocation < 0) {
+    const vertexPositionAttributeLocation = gl.getAttribLocation(glProgram, 'vertexPosition');
+    const vertexColourAttributeLocation = gl.getAttribLocation(glProgram, 'vertexColour');
+    if (vertexPositionAttributeLocation < 0 || vertexColourAttributeLocation < 0) {
         showError(`Failed to get attribute location for vertexPosition`);
         return;
     }
-    return [gl, helloTriangleProgram, vertexPositionAttributeLocation]
+    return [gl, glProgram, vertexPositionAttributeLocation, vertexColourAttributeLocation]
 }
 
-function DrawShape(vertices) {
-    console.log("TODO: Make shape work for not just triangles")
+function DrawShape(vertices, colours, indices) {
     //
     // Create a list of [X, Y] coordinates belonging to the corners ("vertices")
     //  of the triangle that will be drawn by WebGL.
     //
-    const triangleGeoCpuBuffer = new Float32Array(vertices);
-    const triangleGeoBuffer = gl.createBuffer();
-    gl.bindBuffer(gl.ARRAY_BUFFER, triangleGeoBuffer);
-    gl.bufferData(gl.ARRAY_BUFFER, triangleGeoCpuBuffer, gl.STATIC_DRAW);
-    gl.vertexAttribPointer(
-        /* index: vertex attrib location */
-        attribs,
-        /* size: number of components in the attribute */
-        2,
-        /* type: type of data in the GPU buffer for this attribute */
-        gl.FLOAT,
-        /* normalized: if type=float and is writing to a vec(n) float input, should WebGL normalize the ints first? */
-        false,
-        /* stride: bytes between starting byte of attribute for a vertex and the same attrib for the next vertex */
-        2 * Float32Array.BYTES_PER_ELEMENT,
-        /* offset: bytes between the start of the buffer and the first byte of the attribute */
-        0
-    );
+    
+    const vertBufferData = new Float32Array(vertices);
+    const vertBuffer = gl.createBuffer();
+    gl.bindBuffer(gl.ARRAY_BUFFER, vertBuffer);
+    gl.bufferData(gl.ARRAY_BUFFER, vertBufferData, gl.STATIC_DRAW);
+    gl.bindBuffer(gl.ARRAY_BUFFER, null);
+
+    const indexBufferData = new Uint16Array(indices);
+    const indexBuffer = gl.createBuffer();
+    gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, indexBuffer);
+    gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, indexBufferData, gl.STATIC_DRAW);
+    gl.bindBuffer(gl.ARRAY_BUFFER, null);
+    
+    const colourBufferData = new Float32Array(colours);
+    const colourBuffer = gl.createBuffer();
+    gl.bindBuffer(gl.ARRAY_BUFFER, colourBuffer)
+    gl.bufferData(gl.ARRAY_BUFFER, colourBufferData, gl.STATIC_DRAW);
+
+    gl.bindBuffer(gl.ARRAY_BUFFER, vertBuffer)
+    gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, indexBuffer)
+    gl.vertexAttribPointer(posAttribs, 2, gl.FLOAT, false, 0, 0)
+    gl.enableVertexAttribArray(posAttribs)
+
+    gl.bindBuffer(gl.ARRAY_BUFFER, colourBuffer);
+    gl.vertexAttribPointer(colourAttribs, 3, gl.FLOAT, false, 0, 0)
+    gl.enableVertexAttribArray(colourAttribs)
+
+    // gl.clearColor(0.5, 0.5, 0.5, 0.9);
     // Draw call (Primitive assembly (which vertices form triangles together?))
-    gl.drawArrays(gl.TRIANGLES, 0, vertices.length / 2);
+    // gl.drawArrays(gl.TRIANGLES, 0, vertices.length / 2);
+    gl.drawElements(gl.TRIANGLES, indices.length, gl.UNSIGNED_SHORT, 0)
 }
 
-export function DrawShapes(polygons) {
+export function DrawShapes(shapes, light = true) {
+    // Takes in list of [ [vert coords..], [colour] ]
+
     // Resets Canvas of old shapes
     canvas.width = canvas.clientWidth;
     canvas.height = canvas.clientHeight;
-    gl.clearColor(0.08, 0.08, 0.08, 1.0);
+    gl.clearColor(light,light,light,1);
     gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
-    
-    // Rasterizer (which output pixels are covered by a triangle?)
     gl.viewport(0, 0, canvas.width, canvas.height);
     
-    // Set up GPU program
-    // Vertex shader (where to put vertex on the screen, in clip space?)
-    // Fragment shader (what color should a pixel be?)
-    gl.useProgram(program);
-    gl.enableVertexAttribArray(attribs);
-    
-    console.log("TODO: Handling DrawShapes()")
-    for (var i in polygons) {
-        DrawShape(polygons[i])
+    // For each shape
+    for (var i in shapes) {
+        // console.log(shape)
+        const verts = shapes[i][0]
+        const col = shapes[i][1]
+        const indices = earcut(verts)
+        const len = verts.length / 2
+        let colours = []
+        for (let x = 0; x < len; x++) {
+            colours.push(col[0])
+            colours.push(col[1])
+            colours.push(col[2])
+        }
+
+        let j = 0
+        // For each vertex index set generated, convert it into a set of the actual vertices, and draw
+        while (j < indices.length) {
+            DrawShape(verts, colours, indices)
+            j += 3
+        }
     }
 }
   
@@ -153,37 +183,41 @@ const triangleVertices = [
     -0.5, -0.5,
     // Bottom right
     0.5, -0.5,
-    0.5, 0.5 // It doesn't exist yet
+    0.5, 0.5
+    , 0.3, 0.3
 ];
 
-const verts2 = [
+const indices2 = [
     // Top middle
     1.0, 1.5,
     // Bottom left
     0.5, 0.5,
     // Bottom right
     1.5, 0.5,
-    
 ];
 
 export function drawShape1() {
-    DrawShapes([triangleVertices])
-    // DrawShape(triangleVertices)
+    DrawShapes([
+        [triangleVertices, [0.1,0.5,0]]
+    ])
 }
 
 export function drawShape2() {
-    DrawShapes([triangleVertices, verts2])
-    // DrawShape(verts2)
+    DrawShapes([
+        [triangleVertices, [0.1,1,1]], 
+        [indices2, [0.2,1,1]]
+    ])
 }
 
 let val = PrepareGPU()
 const gl = val[0]
 const program = val[1]
-const attribs = val[2]
+const posAttribs = val[2]
+const colourAttribs = val[3]
 
 try {
     // drawShape(triangleVertices);
-    // drawShape(verts2)
+    // drawShape(indices2)
 } catch (e) {
     showError(`Uncaught JavaScript exception: ${e}`);
 }
